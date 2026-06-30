@@ -170,28 +170,9 @@ class MimoRegistration {
       const passToken = passTokenCookie ? passTokenCookie.value : null;
       const serviceToken = serviceTokenCookie ? serviceTokenCookie.value : null;
 
-      // 1. Redeem invite code from pool (round-robin)
-      let referralCode = null;
-      if (this.accountManager && this.config.xiaomi.useAccountReferrals) {
-        referralCode = this.accountManager.getNextReferral();
-        if (referralCode) {
-          console.log(`  Using referral from pool: ${referralCode}`);
-          try {
-            await this.redeemInviteCode(referralCode);
-          } catch (inviteErr) {
-            console.log('  ! Failed to complete invite code redemption:', inviteErr.message);
-          }
-        } else {
-          console.log('  No referrals available in pool');
-        }
-      } else if (!this.skipInviteCode && this.inviteCode) {
-        // Fallback to config invite code
-        try {
-          await this.redeemInviteCode(this.inviteCode);
-        } catch (inviteErr) {
-          console.log('  ! Failed to complete invite code redemption:', inviteErr.message);
-        }
-      }
+      // Skip invite code — HWPMXZ is flagged/restricted
+      // Redeem later using fresh referral codes from accounts.json
+      console.log('  Skipping invite code redemption (use separate script to redeem later)');
 
       // 2. Create API Key
       let apiKey = null;
@@ -220,11 +201,12 @@ class MimoRegistration {
       console.log();
 
       // Save to account manager for referral rotation
-      if (this.accountManager && referralCode) {
+      // Note: referral_code will be added later when invite code is redeemed
+      if (this.accountManager) {
         this.createdAccount = this.accountManager.addAccount({
           email,
           password: this.config.xiaomi.password,
-          referral_code: referralCode,
+          referral_code: null,
           api_key: apiKey
         });
       }
@@ -234,8 +216,7 @@ class MimoRegistration {
         password: this.config.xiaomi.password,
         passToken,
         serviceToken,
-        apiKey,
-        referralCode
+        apiKey
       };
 
     } catch (error) {
