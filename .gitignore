@@ -9,3 +9,5 @@ chain-refcode-leak-*.png
 config/default.json
 /tmp/
 releases/
+config/accounts.json
+config/proxy-working.json

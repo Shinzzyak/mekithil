@@ -17,6 +17,7 @@ import { join } from 'path';
 import { MimoRegistration } from '../core/registration.js';
 import { generateFingerprint, buildInitScript, buildExtraHeaders } from '../browser/fingerprint.js';
 import { applyStealthPatches } from '../browser/stealth.js';
+import { generatePassword } from '../utils/password-gen.js';
 
 const PROXY_ERROR_PATTERN = /ERR_TUNNEL|ERR_PROXY|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|socket hang|timeout|NS_ERROR/i;
 
@@ -99,6 +100,7 @@ class ChainRunner extends EventEmitter {
   async _runIteration(idx, total, currentRef) {
     const iterConfig = JSON.parse(JSON.stringify(this.config));
     iterConfig.xiaomi.inviteCode = currentRef;
+    iterConfig.xiaomi.password = generatePassword(); // unique password per account
     iterConfig.xiaomi.referralLink =
       `https://platform.xiaomimimo.com/?ref=${encodeURIComponent(currentRef)}`;
 

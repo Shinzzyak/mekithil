@@ -1,0 +1,29 @@
+{
+  "_comment": "TEMPLATE — Copy to accounts.json and fill in your data",
+  "accounts": [
+    {
+      "id": 1,
+      "email": "your-email@domain.com",
+      "password": "your-password",
+      "referral_code": "YOUR_REF",
+      "api_key": "sk-xxx",
+      "created_at": "2026-01-01T00:00:00Z",
+      "status": "active",
+      "referrals_count": 0,
+      "run": 1
+    }
+  ],
+  "referral_pool": ["YOUR_REF"],
+  "stats": {
+    "total_accounts": 1,
+    "active_accounts": 1,
+    "last_created": "2026-01-01T00:00:00Z",
+    "last_referral_used": null,
+    "referral_rotation_index": 0
+  },
+  "config": {
+    "inviteCooldownMs": 300000,
+    "maxReferralsPerAccount": 10,
+    "referralCooldownHours": 24
+  }
+}
