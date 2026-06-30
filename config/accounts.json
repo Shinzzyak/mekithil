@@ -1,0 +1,40 @@
+{
+  "accounts": [
+    {
+      "id": 1,
+      "email": "pantailembah56@exilion.my.id",
+      "password": "BulkPass123!",
+      "referral_code": "P8SVGF",
+      "api_key": "sk-szw…dlxf",
+      "created_at": "2026-06-30T07:38:00Z",
+      "status": "active",
+      "referrals_count": 2
+    },
+    {
+      "id": 2,
+      "email": "dewaloka35@exilion.my.id",
+      "password": "BulkPass123!",
+      "referral_code": "4HU9CA",
+      "api_key": "sk-sil…6doy",
+      "created_at": "2026-06-30T07:46:00Z",
+      "status": "active",
+      "referrals_count": 2
+    }
+  ],
+  "referral_pool": [
+    "P8SVGF",
+    "4HU9CA"
+  ],
+  "stats": {
+    "total_accounts": 2,
+    "active_accounts": 2,
+    "last_created": "2026-06-30T07:46:00Z",
+    "last_referral_used": "4HU9CA",
+    "referral_rotation_index": 0
+  },
+  "config": {
+    "inviteCooldownMs": 300000,
+    "maxReferralsPerAccount": 10,
+    "referralCooldownHours": 24
+  }
+}

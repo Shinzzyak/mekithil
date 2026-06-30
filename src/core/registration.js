@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { TempmailClient } from '../clients/tempmail.js';
 import { CaptchaSolver } from '../clients/captcha.js';
+import { AccountManager } from '../utils/account-manager.js';
 import { generateFingerprint, buildInitScript, buildExtraHeaders } from '../browser/fingerprint.js';
 import { humanFill, humanFillLocator, humanClick, humanType, humanDelay } from '../browser/human.js';
 
@@ -43,6 +44,8 @@ class MimoRegistration {
     this.captcha = new CaptchaSolver(config.captcha.apiKey);
     this.browser = null;
     this.page = null;
+    this.accountManager = new AccountManager();
+    this.createdAccount = null;
   }
   async run() {
     try {
@@ -167,11 +170,27 @@ class MimoRegistration {
       const passToken = passTokenCookie ? passTokenCookie.value : null;
       const serviceToken = serviceTokenCookie ? serviceTokenCookie.value : null;
 
-      // 1. Redeem invite code (dulu sebelum apply form, biar saldo $2 langsung masuk)
-      try {
-        await this.redeemInviteCode();
-      } catch (inviteErr) {
-        console.log('  ! Failed to complete invite code redemption:', inviteErr.message);
+      // 1. Redeem invite code from pool (round-robin)
+      let referralCode = null;
+      if (this.accountManager && this.config.xiaomi.useAccountReferrals) {
+        referralCode = this.accountManager.getNextReferral();
+        if (referralCode) {
+          console.log(`  Using referral from pool: ${referralCode}`);
+          try {
+            await this.redeemInviteCode(referralCode);
+          } catch (inviteErr) {
+            console.log('  ! Failed to complete invite code redemption:', inviteErr.message);
+          }
+        } else {
+          console.log('  No referrals available in pool');
+        }
+      } else if (!this.skipInviteCode && this.inviteCode) {
+        // Fallback to config invite code
+        try {
+          await this.redeemInviteCode(this.inviteCode);
+        } catch (inviteErr) {
+          console.log('  ! Failed to complete invite code redemption:', inviteErr.message);
+        }
       }
 
       // 2. Create API Key
@@ -200,12 +219,23 @@ class MimoRegistration {
       console.log(`API Key: ${apiKey || 'Not created'}`);
       console.log();
 
+      // Save to account manager for referral rotation
+      if (this.accountManager && referralCode) {
+        this.createdAccount = this.accountManager.addAccount({
+          email,
+          password: this.config.xiaomi.password,
+          referral_code: referralCode,
+          api_key: apiKey
+        });
+      }
+
       return { 
         email, 
         password: this.config.xiaomi.password,
         passToken,
         serviceToken,
-        apiKey
+        apiKey,
+        referralCode
       };
 
     } catch (error) {
@@ -1298,13 +1328,11 @@ class MimoRegistration {
     }
   }
 
-  async redeemInviteCode() {
+  async redeemInviteCode(code = null) {
     console.log('[Step 7.6] Redeeming invite code...');
 
-    // Read invite code from config (with fallback to parsing referral link)
-    const refCodeMatch = this.config.xiaomi.referralLink.match(/[?&]ref=([A-Z0-9]+)/i);
-    const inviteCode = this.config.xiaomi.inviteCode
-      || (refCodeMatch ? refCodeMatch[1] : 'HWPMXZ');
+    // Use provided code or fallback to config
+    const inviteCode = code || this.config.xiaomi.inviteCode || 'HWPMXZ';
     console.log(`  Invite code to redeem: ${inviteCode}`);
 
     // 1. Klik menu "Console" dulu — biar navigasi-nya mirip user beneran
