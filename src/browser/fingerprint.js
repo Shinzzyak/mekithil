@@ -18,6 +18,7 @@ import crypto from 'crypto';
 const CHROME_VERSIONS = [
   '122.0.0.0', '123.0.0.0', '124.0.0.0', '125.0.0.0', '126.0.0.0',
   '127.0.0.0', '128.0.0.0', '129.0.0.0', '130.0.0.0', '131.0.0.0',
+  '132.0.0.0', '133.0.0.0', '134.0.0.0',
 ];
 
 // Windows 10 dan 11 dua-duanya report "10.0" di UA string
@@ -36,14 +37,37 @@ const VIEWPORTS = [
 
 const LOCALES = ['en-US', 'en-GB', 'id-ID', 'en-AU', 'en-CA', 'en-SG'];
 
-const TIMEZONES = [
-  'Asia/Jakarta', 'Asia/Singapore', 'Asia/Bangkok',
-  'Asia/Kuala_Lumpur', 'Asia/Manila', 'Asia/Ho_Chi_Minh',
-];
+// Grouped by region for consistent geo-fingerprinting
+const TIMEZONE_GROUPS = {
+  'Asia': ['Asia/Jakarta', 'Asia/Singapore', 'Asia/Bangkok', 'Asia/Kuala_Lumpur', 'Asia/Manila', 'Asia/Ho_Chi_Minh', 'Asia/Tokyo', 'Asia/Seoul', 'Asia/Shanghai'],
+  'America': ['America/New_York', 'America/Chicago', 'America/Los_Angeles', 'America/Denver', 'America/Phoenix'],
+  'Europe': ['Europe/London', 'Europe/Berlin', 'Europe/Paris', 'Europe/Madrid', 'Europe/Rome'],
+};
+const TIMEZONES = Object.values(TIMEZONE_GROUPS).flat();
 
-const HARDWARE_CONCURRENCY = [4, 6, 8, 12, 16];
-const DEVICE_MEMORY = [4, 8, 16];
-const COLOR_DEPTHS = [24, 30];
+const HARDWARE_CONCURRENCY = [2, 4, 6, 8, 12, 16];
+const DEVICE_MEMORY = [2, 4, 8, 16, 32];
+const COLOR_DEPTHS = [24, 30, 32];
+
+// Platform probabilities: Win32 dominates (75%), others less frequent
+const PLATFORM_WEIGHTS = [
+  { platform: 'Win32', weight: 75 },
+  { platform: 'MacIntel', weight: 15 },
+  { platform: 'Linux x86_64', weight: 10 },
+];
+const PLATFORMS = PLATFORM_WEIGHTS.map(p => p.platform);
+
+const VENDORS = ['Google Inc.', 'Google Inc. (NVIDIA)', 'Google Inc. (Intel)', 'Google Inc. (AMD)'];
+
+// Language-locale pairs for consistency
+const LOCALE_MAP = {
+  'en-US': { lang: 'en-US', baseLang: 'en' },
+  'en-GB': { lang: 'en-GB', baseLang: 'en' },
+  'id-ID': { lang: 'id-ID', baseLang: 'id' },
+  'en-AU': { lang: 'en-AU', baseLang: 'en' },
+  'en-CA': { lang: 'en-CA', baseLang: 'en' },
+  'en-SG': { lang: 'en-SG', baseLang: 'en' },
+};
 
 // Pasangan vendor + renderer realistis (gak campur — kalau vendor NVIDIA,
 // renderer-nya juga GPU NVIDIA biar konsisten saat skrip cocokkan keduanya)
@@ -71,6 +95,16 @@ function randInt(min, max) {
 
 // ---- Fingerprint generator ---------------------------------------------
 
+function weightedPick(items, weights) {
+  const total = weights.reduce((s, w) => s + w, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
 export function generateFingerprint() {
   const chromeVersion = pick(CHROME_VERSIONS);
   const chromeMajor = chromeVersion.split('.')[0];
@@ -82,9 +116,20 @@ export function generateFingerprint() {
   const webgl = pick(WEBGL_RENDERERS);
   const colorDepth = pick(COLOR_DEPTHS);
   const deviceScaleFactor = pick([1, 1, 1, 1.25, 1.5]);
+  // Weighted platform selection (Windows dominant)
+  const platform = weightedPick(PLATFORMS, PLATFORM_WEIGHTS.map(p => p.weight));
 
+  // Build UA string consistent with selected platform
+  let osSection;
+  if (platform === 'MacIntel') {
+    osSection = 'Macintosh; Intel Mac OS X 10_15_7';
+  } else if (platform === 'Linux x86_64') {
+    osSection = 'X11; Linux x86_64';
+  } else {
+    osSection = `Windows NT ${WINDOWS_NT_VERSION}; Win64; x64`;
+  }
   const userAgent =
-    `Mozilla/5.0 (Windows NT ${WINDOWS_NT_VERSION}; Win64; x64) ` +
+    `Mozilla/5.0 (${osSection}) ` +
     `AppleWebKit/537.36 (KHTML, like Gecko) ` +
     `Chrome/${chromeVersion} Safari/537.36`;
 
@@ -111,12 +156,18 @@ export function generateFingerprint() {
     },
     locale,
     timezone,
-    platform: 'Win32',
+    platform,
+    vendor: pick(VENDORS),
     hardwareConcurrency: cores,
     deviceMemory: memory,
     webgl,
     seed,
     pluginsCount: randInt(2, 5),
+    // Additional stealth: randomize WebGL precision, touch support, etc.
+    maxTouchPoints: Math.random() > 0.7 ? randInt(1, 5) : 0,
+    doNotTrack: Math.random() > 0.8 ? '1' : null,
+    cookieEnabled: true,
+    pdfViewerEnabled: Math.random() > 0.3,
   };
 }
 
@@ -125,12 +176,14 @@ export function generateFingerprint() {
 // kita override eksplisit biar match sama UA yang kita rotasikan.
 export function buildExtraHeaders(fp) {
   const major = fp.chromeMajor;
-  const baseLang = fp.locale.split('-')[0];
+  const localeInfo = LOCALE_MAP[fp.locale] || { lang: fp.locale, baseLang: fp.locale.split('-')[0] };
+  // Platform header must match actual platform
+  const platformHeader = fp.platform === 'MacIntel' ? '"macOS"' : fp.platform === 'Linux x86_64' ? '"Linux"' : '"Windows"';
   return {
     'Sec-CH-UA': `"Chromium";v="${major}", "Not_A Brand";v="24", "Google Chrome";v="${major}"`,
     'Sec-CH-UA-Mobile': '?0',
-    'Sec-CH-UA-Platform': '"Windows"',
-    'Accept-Language': `${fp.locale},${baseLang};q=0.9`,
+    'Sec-CH-UA-Platform': platformHeader,
+    'Accept-Language': `${localeInfo.lang},${localeInfo.baseLang};q=0.9`,
   };
 }
 
@@ -147,9 +200,15 @@ export function buildInitScript(fp) {
         // ---- navigator overrides ----
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
         Object.defineProperty(navigator, 'platform', { get: () => ${safe(fp.platform)}, configurable: true });
+        Object.defineProperty(navigator, 'vendor', { get: () => ${safe(fp.vendor)}, configurable: true });
         Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => ${fp.hardwareConcurrency}, configurable: true });
         Object.defineProperty(navigator, 'deviceMemory', { get: () => ${fp.deviceMemory}, configurable: true });
         Object.defineProperty(navigator, 'languages', { get: () => [${safe(fp.locale)}, ${safe(fp.locale.split('-')[0])}], configurable: true });
+        Object.defineProperty(navigator, 'maxTouchPoints', { get: () => ${fp.maxTouchPoints}, configurable: true });
+        Object.defineProperty(navigator, 'cookieEnabled', { get: () => ${fp.cookieEnabled}, configurable: true });
+        if (navigator.pdfViewerEnabled !== undefined) {
+          Object.defineProperty(navigator, 'pdfViewerEnabled', { get: () => ${fp.pdfViewerEnabled}, configurable: true });
+        }
 
         // Plugins palsu, panjangnya berbeda-beda
         const fakePlugins = Array.from({ length: ${fp.pluginsCount} }, (_, i) => ({

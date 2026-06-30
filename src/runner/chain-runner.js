@@ -16,6 +16,7 @@ import { appendFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { MimoRegistration } from '../core/registration.js';
 import { generateFingerprint, buildInitScript, buildExtraHeaders } from '../browser/fingerprint.js';
+import { applyStealthPatches } from '../browser/stealth.js';
 
 const PROXY_ERROR_PATTERN = /ERR_TUNNEL|ERR_PROXY|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|socket hang|timeout|NS_ERROR/i;
 
@@ -75,8 +76,13 @@ class ChainRunner extends EventEmitter {
         this.emit('log', `↻ Iteration failed, retrying with same seed ${currentRef}`);
       }
 
+      // Rate limiting: 5-10 minutes between accounts to avoid detection
+      // MiMo risk control flags rapid registration patterns
       if (i < count - 1 && !this._aborted) {
-        const wait = 8000 + Math.floor(Math.random() * 6000);
+        const minDelay = this.config.xiaomi.inviteCooldownMs || 300000; // 5 min default
+        const maxDelay = minDelay + 300000; // +5 min jitter
+        const wait = minDelay + Math.floor(Math.random() * (maxDelay - minDelay));
+        this.emit('log', `⏳ Waiting ${Math.round(wait/1000)}s (${Math.round(wait/60000)}min) before next account...`);
         await new Promise(r => setTimeout(r, wait));
       }
     }
@@ -113,15 +119,24 @@ class ChainRunner extends EventEmitter {
           const hint = this.proxyManager.getFingerprintHint(this.config.proxy?.defaultCountry || 'US');
           fp.locale = hint.locale;
           fp.timezone = hint.timezone;
+          this.emit('log', `🌐 Using proxy: ${currentProxy.server}`);
         }
       }
 
+      // Enhanced stealth: disable automation indicators
       reg.browser = await chromium.launch({
         headless: iterConfig.browser.headless,
-        channel: 'chrome',
         args: [
           `--window-size=${fp.viewport.width},${fp.viewport.height}`,
           '--disable-blink-features=AutomationControlled',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-site-isolation-trials',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--window-size=1920,1080',
         ],
       });
 
@@ -138,6 +153,9 @@ class ChainRunner extends EventEmitter {
       await ctx.addInitScript({ content: buildInitScript(fp) });
       reg.page = await ctx.newPage();
 
+      // Apply additional stealth patches
+      await applyStealthPatches(reg.page, ctx);
+
       const origScreenshot = reg.page.screenshot.bind(reg.page);
       reg.page.screenshot = async (opts = {}) => {
         const isError = opts.path && opts.path.includes('error');
@@ -146,8 +164,9 @@ class ChainRunner extends EventEmitter {
       };
 
       await reg.page.goto(iterConfig.xiaomi.referralLink, {
-        waitUntil: 'networkidle', timeout: iterConfig.browser.timeout,
+        waitUntil: 'commit', timeout: iterConfig.browser.timeout,
       });
+      await reg.page.waitForLoadState('domcontentloaded', { timeout: iterConfig.browser.timeout }).catch(() => {});
 
       await reg.fillRegistrationForm(email);
       await reg.submitRegistration();
@@ -155,8 +174,14 @@ class ChainRunner extends EventEmitter {
       await reg.handleImageCaptcha();
       await reg.verifyEmail(email);
 
-      try { await reg.redeemInviteCode(); } catch (e) {
-        if (e.code === 'ACCOUNT_RESTRICTED' || e.code === 'BALANCE_NOT_CREDITED') throw e;
+      // Skip invite code by default to avoid ACCOUNT_RESTRICTED risk control
+      // Redeem manually later after accounts cool down
+      if (!iterConfig.xiaomi.skipInviteCode) {
+        try { await reg.redeemInviteCode(); } catch (e) {
+          if (e.code === 'ACCOUNT_RESTRICTED' || e.code === 'BALANCE_NOT_CREDITED') throw e;
+        }
+      } else {
+        this.emit('log', '⏭ Skipping invite code redemption (skipInviteCode=true)');
       }
 
       try { apiKey = await reg.createApiKey(); } catch (e) {}
