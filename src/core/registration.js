@@ -70,7 +70,6 @@ class MimoRegistration {
 
       this.browser = await chromium.launch({
         headless: this.config.browser.headless,
-        channel: 'chrome',
         args: [
           // Hindari flag --headless yg kelihatan, dan window-size konsisten dgn viewport
           `--window-size=${fp.viewport.width},${fp.viewport.height}`,
@@ -328,17 +327,19 @@ class MimoRegistration {
     await humanDelay(200, 500);
 
     // 5. Fill password (name="password")
+    // NOTE: Xiaomi risk control detects keyboard events on password fields
+    // and closes the page. Use Playwright .fill() for password fields.
     const pwdField = this.page.locator('input[name="password"]').first();
     if (await pwdField.count() > 0 && await pwdField.isVisible()) {
-      await humanFill(this.page, pwdField, this.config.xiaomi.password);
+      await this.page.fill('input[name="password"]', this.config.xiaomi.password);
       console.log('  ✓ Filled password');
     }
 
-    // 5. Fill confirm password (name="repassword")
+    // 6. Fill confirm password (name="repassword")
     const repwdField = this.page.locator('input[name="repassword"]').first();
     if (await repwdField.count() > 0 && await repwdField.isVisible()) {
       await humanDelay(200, 450);
-      await humanFill(this.page, repwdField, this.config.xiaomi.password);
+      await this.page.fill('input[name="repassword"]', this.config.xiaomi.password);
       console.log('  ✓ Filled confirm password');
     }
 
@@ -562,7 +563,7 @@ class MimoRegistration {
         return;
       }
 
-      let imageRetries = 3;
+      let imageRetries = 5;
       let solvedImage = false;
 
       while (imageRetries > 0 && !solvedImage) {
@@ -579,10 +580,27 @@ class MimoRegistration {
           throw new Error('Could not locate captcha image element');
         }
 
-        // 4. Take a screenshot of the captcha image element
-        console.log(`  Taking screenshot of captcha image (attempt ${4 - imageRetries}/3)...`);
+  // 4. Take a screenshot of the captcha image element
+        console.log(`  Taking screenshot of captcha image (attempt ${6 - imageRetries}/5)...`);
         const imgBuffer = await captchaImg.screenshot();
-        const base64Image = imgBuffer.toString('base64');
+        
+        // Pre-process image for better OCR: convert to high-contrast grayscale
+        let base64Image;
+        try {
+          // Use sharp for image preprocessing if available
+          const sharp = (await import('sharp')).default;
+          const processed = await sharp(imgBuffer)
+            .greyscale()
+            .normalize()  // Increase contrast
+            .sharpen()    // Sharpen edges
+            .toBuffer();
+          base64Image = processed.toString('base64');
+          console.log('  ✓ Pre-processed captcha image (greyscale + normalize + sharpen)');
+        } catch (sharpErr) {
+          // Fallback: use raw screenshot
+          base64Image = imgBuffer.toString('base64');
+          console.log('  ! sharp not available, using raw image');
+        }
 
         // 5. Solve using 2Captcha
         const solution = await this.captcha.solveImageCaptcha(base64Image);
