@@ -408,7 +408,7 @@ class MimoRegistration {
     try {
       // Wait for captcha modal to become visible
       await this.page.waitForSelector('.miverify_wind:not([style*="display: none"])', { 
-        timeout: 10000 
+        timeout: 15000 
       });
       console.log('  ✓ Captcha modal appeared');
 
@@ -421,7 +421,7 @@ class MimoRegistration {
       
       // Wait for the reCAPTCHA iframe to load in the DOM
       try {
-        await this.page.waitForSelector('iframe[src*="recaptcha"]', { timeout: 10000 });
+        await this.page.waitForSelector('iframe[src*="recaptcha"]', { timeout: 15000 });
         console.log('  ✓ reCAPTCHA iframe detected');
       } catch (e) {
         console.log('  ! reCAPTCHA iframe not found by selector, scanning frames...');
@@ -453,7 +453,7 @@ class MimoRegistration {
           console.log(`  Found reCAPTCHA checkbox iframe (attempt ${6 - retries}/5)`);
           
           try {
-            await anchorFrame.waitForSelector('.recaptcha-checkbox-border', { timeout: 5000 });
+            await anchorFrame.waitForSelector('.recaptcha-checkbox-border', { timeout: 10000 });
             await anchorFrame.click('.recaptcha-checkbox-border');
             console.log('  ✓ Clicked reCAPTCHA checkbox');
             
@@ -581,11 +581,11 @@ class MimoRegistration {
     console.log('  Checking for image verification code modal...');
     
     try {
-      // 1. Wait up to 7 seconds for the image captcha element to appear
+      // 1. Wait up to 10 seconds for the image captcha element to appear
       // If it doesn't appear, it means registration went straight to email verification
       try {
         await this.page.waitForSelector('img[src*="captcha"], img[src*="getCaptcha"], img[src*="code"], img[class*="captcha"]', { 
-          timeout: 7000 
+          timeout: 10000 
         });
         console.log('  ✓ Image captcha element detected');
       } catch (e) {
@@ -836,7 +836,15 @@ class MimoRegistration {
   async verifyEmail(email) {
     // Wait for verification email
     console.log('  Waiting for verification email...');
-    const messages = await this.tempmail.getMessages(email);
+    
+    // Retry up to 3 times with 10 second delays
+    let messages = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      messages = await this.tempmail.getMessages(email);
+      if (messages && messages.length > 0) break;
+      console.log(`  No messages yet, retrying in 10 seconds... (attempt ${attempt + 1}/3)`);
+      await this.page.waitForTimeout(10000);
+    }
 
     // Extract verification code
     const code = this.tempmail.extractVerificationCode(messages);
@@ -847,7 +855,7 @@ class MimoRegistration {
     let verificationInput = null;
     try {
       verificationInput = await this.page.waitForSelector('input[name="ticket"], input[name="code"], input[placeholder*="code" i], input[placeholder*="verification" i], input[placeholder*="Enter code" i]', { 
-        timeout: 15000 
+        timeout: 20000 
       });
     } catch (e) {
       console.log('  ! Verification input not found by selectors. Logging all page inputs:');
